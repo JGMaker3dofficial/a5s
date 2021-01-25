@@ -1,0 +1,488 @@
+/*
+*********************************************************************************************************
+*
+*	模块名称 :预热界面模块
+*	文件名称 : preheat.c
+*	版    本 : V1.0
+*	说    明 : 预热界面
+*
+*
+*********************************************************************************************************
+*/
+
+
+/**********************包含头文件*************************/
+#include "preheat.h"
+#include "common.h"
+#include "welcome.h"
+#include "app_gui.h"
+#include "bsp.h"
+#include "temperature.h"
+#include "planner.h"
+#include "stepper.h"
+#include "Dlion.h"
+#include "gcodeplayer.h"
+/**********************调试宏定义**************************/
+
+#define PREHEATUI_DEBUG_EN
+
+#ifdef PREHEATUI_DEBUG_EN
+
+#define PREHEATUI_DEBUG	DEBUG_PRINTF
+
+#else
+#define PREHEATUI_DEBUG(format,...)	((void) 0)
+
+#endif
+/************************************************/
+
+
+
+
+/***********************私有宏*************************/
+#define PREHEAT_SET_BG_COLOR	GRAY//设置界面背景颜色
+#define PREHEAT_SET_FONT_COLOR	BLACK//设置按钮字体颜色
+
+
+#define PREHEAT_MIN_BUTTON_ID		8
+#define PREHEAT_MAX_BUTTON_ID		9
+
+#define SET_MIN_ID		0XAA
+#define SET_MAX_ID		0XC5
+
+/************************************************/
+
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: disply_set_value
+*	功能说明: 显示设定的热床、挤出头温度值或者风扇的%值
+*	形    参: id--设置对象
+@ ADJ_BED_VAL_ID--热床
+@ ADJ_EXTRUDER_VAL_ID--挤出头
+@ ADJ_FAN_VAL_ID -- 风扇
+
+value--要设置的值
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void disply_set_value(const uint8_t id, const float value)
+{
+    uint8_t num = 10;//按键数
+    uint8_t i;
+    uint8_t j = 0;
+    uint8_t xoff, yoff;
+    uint8_t disp_width = 60;
+    uint8_t disp_height = 50;
+    char valueBuffer[5];
+
+
+    xoff = 200 + 10;
+    yoff = 40 + 10;
+    gui_draw_rectangle(xoff, yoff, disp_width, disp_height, BLACK);
+    gui_fill_rectangle(xoff, yoff, disp_width, disp_height, CYAN); //显示设定值文本框
+
+    switch ( id )
+    {
+    case ADJ_BED_VAL_ID:
+    case ADJ_EXTRUDER_VAL_ID:
+        sprintf(valueBuffer, "%3.0f C", value);//degHotend(0));
+        break;
+    case ADJ_FAN_VAL_ID:
+        sprintf(valueBuffer, "%3d% %", (uint32_t)value);
+        break;
+    default:
+        break;
+    }
+
+    gui_show_strmid(xoff - 5, yoff + 15, disp_width, 16, BLACK, 16, (u8 *)valueBuffer, 1);//显示设定的值
+
+}
+
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: set_minOrMax_value
+*	功能说明: 显示设定的热床、挤出头温度值或者风扇的最大最小值
+*	形    参: obj_id--设置对象
+@ ADJ_BED_VAL_ID--热床
+@ ADJ_EXTRUDER_VAL_ID--挤出头
+@ ADJ_FAN_VAL_ID -- 风扇
+
+value_id--最大最小值标志
+@ SET_MIN_ID--最小值设置
+@ SET_MAX_ID--最大值设置
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void set_minOrMax_value(uint8_t obj_id, uint8_t value_id)
+{
+    char TempBuffer[32];
+    switch ( obj_id )
+    {
+    case ADJ_BED_VAL_ID:
+        switch ( value_id )
+        {
+        case SET_MIN_ID:
+            step_value[ADJ_BED_VAL_ID] = BED_MIN_TEMP;
+            break;
+        case SET_MAX_ID:
+            step_value[ADJ_BED_VAL_ID] = BED_MAX_TEMP;
+            break;
+        default:
+            break;
+        }
+        disply_set_value(ADJ_BED_VAL_ID, step_value[ADJ_BED_VAL_ID]);
+        sprintf(TempBuffer, "M140 S%.1f", step_value[ADJ_BED_VAL_ID]);
+        menu_action_gcode(TempBuffer);
+        break;
+
+    case ADJ_EXTRUDER_VAL_ID:
+        switch ( value_id )
+        {
+        case SET_MIN_ID:
+            step_value[ADJ_EXTRUDER_VAL_ID] = EXRUDER_MIN_TEMP;
+            break;
+        case SET_MAX_ID:
+            step_value[ADJ_EXTRUDER_VAL_ID] = EXRUDER_MAX_TEMP;
+            break;
+        default:
+            break;
+        }
+        disply_set_value(ADJ_EXTRUDER_VAL_ID, step_value[ADJ_EXTRUDER_VAL_ID]);
+        sprintf(TempBuffer, "M104 S%.1f",step_value[ADJ_EXTRUDER_VAL_ID]);
+        menu_action_gcode(TempBuffer);
+
+        break;
+
+    case ADJ_FAN_VAL_ID :
+        switch ( value_id )
+        {
+        case SET_MIN_ID:
+            step_value[ADJ_FAN_VAL_ID] = FAN_MIN_DUTY;
+            break;
+        case SET_MAX_ID:
+            step_value[ADJ_FAN_VAL_ID] = FAN_MAX_DUTY;
+            break;
+        default:
+            break;
+        }
+        disply_set_value(ADJ_FAN_VAL_ID, step_value[ADJ_FAN_VAL_ID]);
+		sprintf(TempBuffer, "M106 S%d", (u8)step_value[ADJ_FAN_VAL_ID]);        
+         menu_action_gcode(TempBuffer);	
+        break;
+
+    default :
+        break;
+
+    }
+
+
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: preheat_set_screen
+*	功能说明: 预热设置界面
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void preheat_set_screen(void)
+{
+    uint8_t num = 10;//按键数
+    uint8_t i;
+    uint8_t j = 0;
+    uint8_t selx;
+    uint8_t free_flag = 0;
+
+    if(redraw_screen_flag == IS_TRUE)
+    {
+        redraw_screen_flag = IS_FALSE;
+        which_screen = IS_PRHEAT_SCREEN;
+        gui_fill_rectangle(0, 40, lcddev.width, lcddev.height - 40, PREHEAT_SET_BG_COLOR);
+        screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *)*num);
+        if(screen_key_group)//按键创建成功
+        {
+
+            uint16_t botton_width = 54;
+            uint16_t botton_height = 54;
+
+            uint16_t xOff = 5;
+            uint16_t yOff = 40 + 17;
+
+            //创建进料+退料
+
+            screen_key_group[0] = btn_creat(xOff, yOff, botton_width, botton_height, 0, 1);
+
+            yOff +=  botton_height + 20 + 17;
+            screen_key_group[1] = btn_creat(xOff, yOff, botton_width, botton_height, 1, 1);
+
+            screen_key_group[0]->picbtnpathu = (u8 *)print_set_path_tbl[0];//进料
+            screen_key_group[0]->picbtnpathd = (u8 *)print_set_path_tbl[0];
+            screen_key_group[0]->caption = (u8 *)print_set_icon_name_tbl[gui_phy.language][0];
+
+            screen_key_group[1]->picbtnpathu = (u8 *)print_set_path_tbl[1];//退料
+            screen_key_group[1]->picbtnpathd = (u8 *)print_set_path_tbl[1];
+            screen_key_group[1]->caption = (u8 *)print_set_icon_name_tbl[gui_phy.language][1];
+
+//创建热床+挤出头+风扇
+            xOff += 54 + 54;
+            yOff = 40 + 17;
+            botton_width = 34;
+            botton_height = 34;
+            for( i = 2; i < 5; i++)
+            {
+                screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 0x91);
+
+                yOff += 20;
+                yOff += botton_height ;
+            }
+            for( i = 2; i < 5; i++)
+            {
+                screen_key_group[i]->picbtnpathu = (u8 *)APP_UNSELECT_PIC;
+                screen_key_group[i]->picbtnpathd = (u8 *)APP_SELECT_PIC;
+
+                screen_key_group[i]->caption = (u8 *)print_set_icon_name_tbl[gui_phy.language][i];
+            }
+
+
+            //返回按键
+            botton_width = 54;
+            botton_height = 54;
+            xOff = 320 - 5 - botton_width;
+            yOff = 240 - 20 - botton_height;
+
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 1);
+            screen_key_group[i]->picbtnpathu = (u8 *)print_set_path_tbl[2];//返回
+            screen_key_group[i]->picbtnpathd = (u8 *)print_set_path_tbl[2];
+            screen_key_group[i]->caption = (u8 *)print_set_icon_name_tbl[gui_phy.language][i];
+
+            //数据加按键
+            //数据减按键
+            botton_width = 40;
+            botton_height = 40;
+            xOff = 200 + 10;
+            yOff = 40 + 70 ;
+
+            for(i = 6; i < 8; i++, j++)
+            {
+                screen_key_group[i] = btn_creat(xOff + j * botton_width + j * 10, yOff, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                if(i == 6)
+                    screen_key_group[i]->caption = (u8 *)"-";
+                else screen_key_group[i]->caption = (u8 *)"+";
+            }
+
+//最大、最小值设定按钮
+
+            botton_width = 40;
+            botton_height = 40;
+            xOff = 200 + 10;
+            yOff = 40 + 70 + 60 ;
+            i = 8;
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+            screen_key_group[i]->bcfucolor = BLACK;
+            screen_key_group[i]->bcfdcolor = WHITE;
+
+            screen_key_group[i]->bkctbl[0] = CYAN;
+            screen_key_group[i]->bkctbl[1] = RED;
+            screen_key_group[i]->bkctbl[2] = CYAN;
+            screen_key_group[i]->bkctbl[3] = RED;
+            screen_key_group[i]->caption = (u8 *)"MIN";
+
+
+            i = 9;
+            xOff = 200 + 10 + 60 + 5;
+            yOff = 40 + 10 ;
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+            screen_key_group[i]->bcfucolor = BLACK;
+            screen_key_group[i]->bcfdcolor = WHITE;
+
+            screen_key_group[i]->bkctbl[0] = CYAN;
+            screen_key_group[i]->bkctbl[1] = RED;
+            screen_key_group[i]->bkctbl[2] = CYAN;
+            screen_key_group[i]->bkctbl[3] = RED;
+            screen_key_group[i]->caption = (u8 *)"MAX";
+
+
+
+            /***************画图标***************/
+            for(i = 0; i < 6; i++)
+            {
+                btn_draw(screen_key_group[i]);
+            }
+            /***********显示字体**************/
+            for( i = 0 ; i < 2 ; i++)
+            {
+                gui_show_strmid(screen_key_group[i]->left - 2, screen_key_group[i]->top + screen_key_group[i]->height + 2, screen_key_group[i]->width + 5, 16, PREHEAT_SET_FONT_COLOR, 16, screen_key_group[i]->caption, 1);
+            }
+
+            for( i = 2 ; i < 5 ; i++)
+            {
+                gui_show_strmid(screen_key_group[i]->left + screen_key_group[i]->width, screen_key_group[i]->top, 16 * 3, 16, PREHEAT_SET_FONT_COLOR, 16, screen_key_group[i]->caption, 1);
+            }
+            gui_show_strmid(screen_key_group[i]->left - 5, screen_key_group[i]->top + screen_key_group[i]->height + 2, screen_key_group[i]->width + 5, 16, PREHEAT_SET_FONT_COLOR, 16, screen_key_group[i]->caption, 1);
+//显示数字加、减以及文本框,最大最小值button
+            botton_width = 60;
+            botton_height = 50;
+            xOff = 200 + 10;
+            yOff = 40 + 10 ;
+
+            gui_draw_rectangle(xOff, yOff, botton_width, botton_height, BLACK);
+            gui_fill_rectangle(xOff, yOff, botton_width, botton_height, CYAN); //显示设定值文本框
+            gui_show_strmid(xOff - 5, yOff + 15, botton_width, 16, BLACK, 16, (u8 *)"000", 1);//显示设定的值
+
+            for( i = 6; i < num ; i++)
+            {
+                btn_draw(screen_key_group[i]);
+            }
+
+
+        }
+        else
+        {
+            PREHEATUI_DEBUG("file %s, function %s memory error!\r\n", __FILE__, __FUNCTION__);
+            return;
+        }
+
+
+    }
+    //温度检测
+    display_temp();
+//按键检测
+    selx = screen_key_chk(screen_key_group, &in_obj, num);
+    if(selx & BUTTON_ACTION)
+    {
+        char TempBuffer[32];
+
+        switch(selx & BUTTON_SELECTION_MASK)
+        {
+        case PRINT_SET_FILA_IN_BMP_ID://进料
+            currentMenu = sub_screen_fila_in;
+            free_flag = 1;
+            PREHEATUI_DEBUG("fila_in key@\r\n");
+//
+            break;
+        case PRINT_SET_FILA_OUT_BMP_ID://退料
+
+            currentMenu = sub_screen_fila_out;
+            free_flag = 1;
+            PREHEATUI_DEBUG("fila_out key@\r\n");
+            break;
+
+        case PRINT_SET_BED_BMP_ID://热床
+
+            adj_value_flag = ADJ_BED_VAL_ID;
+            is_set_value = IS_TRUE;
+            display_select_button(PRINT_SET_BED_BMP_ID);
+            disply_set_value(adj_value_flag, step_value[ADJ_BED_VAL_ID]);
+            sprintf(TempBuffer, "M140 S%.1f", (float)step_value[ADJ_BED_VAL_ID]);
+            menu_action_gcode(TempBuffer);
+            PREHEATUI_DEBUG("bed key@\r\n");
+
+            break;
+        case PRINT_SET_EXTRUDER_BMP_ID://挤出头
+
+            adj_value_flag = ADJ_EXTRUDER_VAL_ID;
+            is_set_value = IS_TRUE;
+            display_select_button(PRINT_SET_EXTRUDER_BMP_ID);
+            disply_set_value(adj_value_flag, step_value[ADJ_EXTRUDER_VAL_ID]);
+            sprintf(TempBuffer, "M104 S%.1f", (float)step_value[ADJ_EXTRUDER_VAL_ID]);
+            menu_action_gcode(TempBuffer);
+            PREHEATUI_DEBUG("extruder key@\r\n");
+            break;
+        case PRINT_SET_FAN_BMP_ID://风扇
+
+            adj_value_flag = ADJ_FAN_VAL_ID;
+            is_set_value = IS_TRUE;
+            display_select_button(PRINT_SET_FAN_BMP_ID);
+            disply_set_value(adj_value_flag, step_value[ADJ_FAN_VAL_ID]);
+            sprintf(TempBuffer, "M106 S%d", (u8)step_value[ADJ_FAN_VAL_ID]);
+            menu_action_gcode(TempBuffer);
+            PREHEATUI_DEBUG("fan key@\r\n");
+            break;
+        case PRINT_SET_BACK_BMP_ID://返回
+
+            currentMenu = main_screen;
+            which_screen = 0;
+            free_flag = 1;
+            PREHEATUI_DEBUG("back key@\r\n");
+            break;
+
+        case PRINT_SET_SUB_BUTTON_ID://-
+            if( is_set_value == IS_TRUE)
+            {
+                set_valu_for_set(adj_value_flag, SUB_DIR);
+
+
+                PREHEATUI_DEBUG("sub key@\r\n");
+            }
+
+
+            break;
+
+        case PRINT_SET_ADD_BUTTON_ID://+
+            if( is_set_value == IS_TRUE)
+            {
+                set_valu_for_set(adj_value_flag, ADD_DIR);
+                PREHEATUI_DEBUG("add key@\r\n");
+            }
+
+            break;
+        case PREHEAT_MIN_BUTTON_ID ://min value
+            if( is_set_value == IS_TRUE)
+            {
+                set_minOrMax_value(adj_value_flag, SET_MIN_ID);
+                PREHEATUI_DEBUG("min key@\r\n");
+            }
+
+            break;
+
+        case PREHEAT_MAX_BUTTON_ID://max value
+            if( is_set_value == IS_TRUE)
+            {
+                set_minOrMax_value(adj_value_flag, SET_MAX_ID);
+                PREHEATUI_DEBUG("max key@\r\n");
+            }
+
+            break;
+        default:
+            break;
+        }
+    }
+    if(free_flag == 1) //释放内存
+    {
+        redraw_screen_flag = IS_TRUE;
+        is_set_value = IS_FALSE;
+        for(i = 0; i < num; i++)
+        {
+            btn_delete(screen_key_group[i]);
+        }
+        gui_memin_free(screen_key_group);
+        PREHEATUI_DEBUG("free preheat screen_key_group \r\n");
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+

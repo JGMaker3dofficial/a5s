@@ -1,0 +1,1665 @@
+/*
+*********************************************************************************************************
+*
+*	模块名称 :打印界面模块
+*	文件名称 : print.c
+*	版    本 : V1.0
+*	说    明 : 打印界面
+*
+*
+*********************************************************************************************************
+*/
+
+
+/**********************包含头文件*************************/
+
+#include "print.h"
+#include "gui.h"
+#include "guix.h"
+#include "common.h"
+#include "bmp.h"
+#include "debug.h"
+#include "app_gui.h"
+#include "welcome.h"
+#include "preheat.h"
+#include "temperature.h"
+#include "gcodeplayer.h"
+#include "stepper.h"
+#include "Dlion.h"
+#include "planner.h"
+/*********************************************/
+
+/**********************调试宏定义**************************/
+
+#define PRINTUI_DEBUG_EN
+
+#ifdef PRINTUI_DEBUG_EN
+
+#define PRINTUI_DEBUG	DEBUG_PRINTF
+
+#else
+#define PRINTUI_DEBUG(format,...)	((void) 0)
+
+#endif
+/************************************************/
+
+
+
+
+
+
+/**********************私有宏定义************************/
+
+#define PRINT_BG_COLOR 					WHITE//打印界面背景色
+#define PRINT_GCODE_ICON_COLOR 			BLUE//gcode图标颜色
+#define PRINT_PROBAR_ICON_COLOR 		LIGHTBLUE//打印进度条颜色
+#define PRINT_PERCENTAGE_COLOR 			BLACK//打印百分比数字显示颜色
+#define PRINT_TIMER_COLOR 				GREEN//打印时间数字显示颜色
+#define PRINT_FONT_COLOR 				BLUE//打印时间数字显示颜色
+
+#define PRINT_STOP_COLOR 				GRAY//弹出停止界面的颜色
+
+#define PRINT_SET_COLOR					GRAY//设置界面背景颜色
+#define PRINT_SET_FONT_COLOR			BLACK//打印设置按钮字体颜色
+
+
+/**********************打印停止界面所有图标ID***********************/
+#define PRINT_STOP_SURE_BUTTON_ID	0
+#define PRINT_STOP_CANCLE_BUTTON_ID	1
+
+
+/******************************************************************/
+
+
+
+/************************打印界面图标路径***********************/
+
+char *const  PRINT_START_PIC = "1:/SYSTEM/PRINT/print_play.bmp";		//打印图标
+char *const  PRINT_PAUSE_PIC = "1:/SYSTEM/PRINT/play_pause.bmp";		//暂停图标
+char *const  PRINT_PRINTSET_PIC = "1:/SYSTEM/PRINT/print_set.bmp";		//打印设置
+char *const  PRINT_STOP_PIC = "1:/SYSTEM/PRINT/print_stop.bmp";		//打印停止
+char *const  PRINT_BACK_PIC = "1:/SYSTEM/PRINT/back.bmp";		//返回
+
+/******************************************************************/
+
+
+/**********************私有变量************************/
+typedef enum
+{
+    IS_START = 0,
+    IS_PAUSE = 1,
+    IS_STOP = 2,
+    IS_SET = 3,
+    IS_BACK = 4,
+    NO_SELECTED_BUTTON_PRINT = 0X3F,
+} _which_button_print;
+
+#define IS_VALIBLE_BUTTON_PRINT(BUTTON) ( BUTTON == IS_STOP || BUTTON == IS_BACK || BUTTON == IS_SET)
+
+
+static uint32_t filam_adj_update_time = 0;
+uint32_t escape_time;
+
+uint8_t pause_op_counter ;
+/**********************************************/
+
+/********************************全局变量**********************/
+_gui_dev *pintdev;
+_progressbar_obj* prgb;
+_btn_obj **screen_key_group;
+
+_filelistbox_obj * flistbox;
+_filelistbox_list * filelistx;
+
+float step_value[3] = {45.0, 190.0, 50.0}; //bed--45C，Extrude--190C，Fan--50%
+
+uint8_t adj_value_flag = 0;//设定温度、风扇值的id标志
+_GUI_TURE_OR_FALSE is_set_value = IS_FALSE;//标记设定热床、挤出头和风扇
+
+
+
+uint8_t *file_name;//记录当前打印的文件名，包含目录
+uint8_t *file_nameNOsuffix;//记录当前打印的文件名
+_which_set_icon	icon_flag = RESET_FLAG_ICON;//用于判断是否是打印设置界面还是预热界面
+/**********************************************/
+
+
+
+
+/**********************英文字母 G 的bmp信息***********************/
+const uint8_t GUI_PRINT_ICO8080[] =
+{
+    0x00, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x0F, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x1F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x3F,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0x80, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x03, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80,
+    0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0x80, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x80, 0x07, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x07, 0xFF, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x07, 0xFF, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xF0, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xF0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x07, 0xFF, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xE0, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF,
+    0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF,
+    0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFE,
+    0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFE, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00,
+    0x3F, 0xFF, 0xFF, 0xFE, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFE, 0x07, 0xFF,
+    0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFE, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF,
+    0xFF, 0xFE, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xFF, 0xFE, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x3F, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xF8, 0x7E,
+    0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0xE0, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00,
+    0x3F, 0xFF, 0x80, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x3F, 0xFF, 0x00, 0x7E, 0x07, 0xFF,
+    0xC0, 0x00, 0x00, 0x00, 0x3F, 0xF8, 0x00, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x1C, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x3C, 0x7E, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x7C, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7C, 0x7E,
+    0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00,
+    0x00, 0x01, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x03, 0xFC, 0x7E, 0x07, 0xFF,
+    0xC0, 0x00, 0x00, 0x00, 0x00, 0x07, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x0F,
+    0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x0F, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x00, 0x1F, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x3F, 0xFC, 0x7E,
+    0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00,
+    0x00, 0x7F, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFC, 0x7E, 0x07, 0xFF,
+    0xC0, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x03, 0xFF,
+    0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x07, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00,
+    0x00, 0x00, 0x0F, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xC0, 0x00, 0x00, 0x00, 0x1F, 0xFF, 0xFC, 0x7E,
+    0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x7E, 0x07, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x7E, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFC, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00, 0x07, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00,
+    0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFC, 0x00, 0x07, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00, 0x07, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, /*"D:\Q1\Q1code\SD??????\pc2lcd\gcode2.BMP",0*/
+
+};
+/**********************************************/
+
+
+/*********************打印界面图标路径*************************/
+char *const print_path_tbl[PRINT_BMP_NUMS] =
+{
+    "1:/SYSTEM/PRINT/print_play.bmp",
+    "1:/SYSTEM/PRINT/play_pause.bmp",
+    "1:/SYSTEM/PRINT/print_stop.bmp",
+    "1:/SYSTEM/PRINT/print_set.bmp",
+    "1:/SYSTEM/PRINT/back.bmp",
+
+};
+
+
+/*********************打印界面名字表*************************/
+char *const print_icon_name_tbl[GUI_LANGUAGE_NUM][PRINT_BMP_NUMS] =
+{
+    {
+        "开始", "暂停", "停止", "设置", "返回",
+    },
+    {
+        "開始", "暫停", "停止", "設置", "返回",
+
+    },
+    {
+        "PLAY", "PAUSE", "STOP", "SET", "BACK",
+    },
+
+};
+
+char *const print_font_name_tbl[GUI_LANGUAGE_NUM] =
+{
+
+    "打印时间->",
+
+    "打印時間->",
+
+    "Escape Time->",
+
+};
+char *const print_file_name_tbl[GUI_LANGUAGE_NUM] =
+{
+
+    "打印文件->",
+
+    "打印文件->",
+
+    "FILE->",
+
+};
+
+/**********************打印设置界面图标名字列表************************/
+char *const print_set_icon_name_tbl[GUI_LANGUAGE_NUM][PRINT_SET_BMP_NUMS] =
+{
+    {"进料", "退料", "热床", "挤出头", "风扇", "返回"},
+    {"進料", "退料", "熱床", "擠出頭", "風扇", "返回"},
+    {"Fila_IN", "Fila_OUT", "Extruder", "Bed", "Fan", "Back"},
+
+};
+
+/*********************打印设置图标目录*************************/
+char *const print_set_path_tbl[3] =
+{
+    "1:/SYSTEM/HOME/setting-infila.bmp",
+    "1:/SYSTEM/HOME/setting-outfila.bmp",
+    "1:/SYSTEM/PRINT/back.bmp",
+};
+
+
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: print_language_set
+*	功能说明: 设置打印界面语言种类
+*	形    参:  language
+@0,简体中文;
+@1,繁体中文;
+@2,英文
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+
+void print_language_set(u8 language)
+{
+    u8 i;
+    if(language > 2)return;
+    for(i = 0; i < PRINT_BMP_NUMS; i++)pintdev->icon[i].name = (u8*)print_icon_name_tbl[language][i];
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: update_print_time
+*	功能说明: 更新打印时间
+*	形    参:  hours--小时
+*	minit--分钟
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+
+static void update_print_time(uint16_t hours, uint8_t minit)
+{
+
+    uint16_t x_start, y_start;
+    uint16_t disp_length = lcddev.width - 60;//60为返回图标的宽
+
+    uint8_t jump = 0;
+    uint8_t f_size = 16;
+    x_start = 2;
+    y_start = 50;
+    BACK_COLOR = PRINT_BG_COLOR;
+    POINT_COLOR = PRINT_FONT_COLOR;
+    Show_Str(x_start, y_start, disp_length, f_size,  (u8*)print_file_name_tbl[0], f_size, 0); //显示打印文件
+    Show_Str(x_start + 5 * (f_size), y_start, disp_length, f_size, file_nameNOsuffix, f_size, 0); //显示打印文件名
+    jump++;
+    y_start += 10;
+    Show_Str(x_start, y_start + f_size * jump, disp_length, f_size, (u8*)print_font_name_tbl[0], f_size, 0); //显示时间
+
+
+    gui_fill_rectangle(x_start + 5 * (f_size) + (f_size / 2), y_start + f_size * jump, 8 * f_size + (f_size / 2), f_size, PRINT_BG_COLOR); //清界面
+    gui_show_num(x_start +  5 * (f_size) + (f_size / 2), y_start + f_size * jump, 3, PRINT_FONT_COLOR, f_size, hours, 0); //显示小时xxx
+    LCD_ShowString(x_start + 5 * (f_size ) + 4 * (f_size / 2), y_start + f_size * jump, disp_length, f_size, f_size, (u8*)":"); //显示：
+    gui_show_num(x_start + 5 * (f_size ) + 5 * (f_size / 2),  y_start + f_size * jump, 2, PRINT_FONT_COLOR, f_size, minit, 0); //显示分钟xx
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: display_print_time_test
+*	功能说明: 显示打印时间，测试用
+*	形    参: 无
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void display_print_time_test(void)
+{
+    static uint32_t print_update_time = 0;
+    u8 hour;
+    u8 min;
+    if( print_update_time <= millis())
+    {
+        print_update_time = millis() + 1000;
+        if(card.FILE_STATE == PS_STOP || card.FILE_STATE == PS_PRINT_OVER_NOR ) escape_time = stoptime / 1000;//正常打印结束 + 用户结束打印
+        else if (card.FILE_STATE == PS_NO) {
+            escape_time = 0;
+        }
+        else escape_time = (millis() - starttime) / 1000;
+        hour = escape_time / 60 / 60;
+        min = escape_time / 60 % 60;
+        update_print_time( hour, min );
+    }
+
+
+}
+
+static void remind_error_infor(void)
+{
+    uint16_t x_start, y_start;
+    uint16_t disp_length = lcddev.width - 54;//54为返回图标的宽
+    uint8_t f_size = 16;
+    uint8_t i;
+    x_start = 0;
+    y_start = 50;
+    POINT_COLOR = RED;
+    for( i = 0; i  < 3 ; i++)
+    {
+        gui_fill_rectangle(x_start, y_start, disp_length, 110 - 50, PRINT_BG_COLOR); //清界面
+        bsp_DelayMS(1000);
+        Show_Str(x_start, y_start, disp_length, f_size, (u8*)"打印文件不存在", f_size, 0); //显示打印文件
+        Show_Str(x_start, y_start + f_size, disp_length, f_size, (u8*)"请重新选择!", f_size, 0); //显示打印文件
+        bsp_DelayMS(1000);
+
+    }
+    POINT_COLOR = BLUE;
+    gui_fill_rectangle(x_start, y_start, disp_length, 110 - 50, PRINT_BG_COLOR); //清界面
+    display_print_time_test();
+
+}
+/*
+*********************************************************************************************************
+*	函 数 名: print_touch_chk
+*	功能说明: 屏幕触摸检测
+*	形    参:  无
+*	返 回 值: 有
+@ 0~8,被双击的图标编号.
+@ 0xff,没有任何图标被双击或者按下
+*********************************************************************************************************
+*/
+
+static u8 print_touch_chk(void)
+{
+    u8 i = 0xff;
+    // tp_dev.scan(0);//扫描
+    if(tp_dev.sta & TP_PRES_DOWN) //有按键被按下
+    {
+        pintdev->status |= 0X80;	//标记有有效触摸
+        pintdev->tpx = tp_dev.x[0];
+        pintdev->tpy = tp_dev.y[0];
+    }
+    else if(pintdev->status & 0X80) //按键松开了,并且有有效触摸
+    {
+
+        for(i = 0; i < PRINT_BMP_NUMS; i++)
+        {
+            if((pintdev->tpx > pintdev->icon[i].x) && (pintdev->tpx < pintdev->icon[i].x + pintdev->icon[i].width) && (pintdev->tpy > pintdev->icon[i].y) && //
+                    (pintdev->tpy < pintdev->icon[i].y + pintdev->icon[i].height))
+            {
+                break;//得到选中的编号
+            }
+        }
+        if(i < PRINT_BMP_NUMS)
+        {
+            DEBUG_PRINTF("button %d", i);
+        } else i = 0xff; //无效的点按.
+        pintdev->status &= 0X7F; //清除按键有效标志
+    }
+
+    return i;
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: display_play_icon
+*	功能说明: 开始/暂停图标切换为开始
+*	形    参:  无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void display_play_icon(void)
+{
+    gui_fill_rectangle(pintdev->icon[0].x, pintdev->icon[0].y, pintdev->icon[0].width, pintdev->icon[0].height + 4 + 16, WHITE);
+    minibmp_decode((u8*)pintdev->icon[0].path, pintdev->icon[0].x, pintdev->icon[0].y, pintdev->icon[0].width, pintdev->icon[0].height, 0, 0);
+    gui_show_strmid(pintdev->icon[0].x, pintdev->icon[0].y + pintdev->icon[0].height + 4, pintdev->icon[0].width, 16, PRINT_FONT_COLOR, 16, (u8*)pintdev->icon[0].name, 1); //显示名字
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: display_pause_icon
+*	功能说明: 开始/暂停图标切换为暂停
+*	形    参:  无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void display_pause_icon(void)
+{
+    gui_fill_rectangle(pintdev->icon[1].x, pintdev->icon[1].y, pintdev->icon[1].width, pintdev->icon[1].height + 4 + 16, WHITE);
+    minibmp_decode((u8*)pintdev->icon[1].path, pintdev->icon[1].x, pintdev->icon[1].y, pintdev->icon[1].width, pintdev->icon[1].height, 0, 0);
+    gui_show_strmid(pintdev->icon[1].x, pintdev->icon[1].y + pintdev->icon[1].height + 4, pintdev->icon[1].width, 16, PRINT_FONT_COLOR, 16, (u8*)pintdev->icon[1].name, 1); //显示名字
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: display_processbar
+*	功能说明: 显示更新进度条
+*	形    参:  length--总长度
+* pos--当前位置
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void display_processbar(uint32_t length, uint32_t pos)
+{
+    static uint32_t bar_update_time = 0;
+
+    if( bar_update_time <= millis())
+    {
+        bar_update_time = millis() + 1000;
+
+        prgb->totallen = length;
+        prgb->curpos = pos;
+        if( pos >= length)//文件取完后，标记停止
+        {
+            card.FILE_STATE = PS_PRINT_OVER_NOR;
+
+        }
+        progressbar_setpos(prgb);
+    }
+
+
+}
+//正常打印结束，改变打印/暂停图标
+static void print_over_normal(void)
+{
+    static u8 is_draw_icon = 0;
+    if(card.FILE_STATE == PS_PRINT_OVER_NOR)
+    {
+
+        is_draw_icon ++;
+        if(is_draw_icon == 1)
+        {
+
+            stoptime = millis() - starttime; //正常打印结束，记录此时结束时间
+            display_play_icon();
+            PRINTUI_DEBUG("print over\r\n");
+        }
+        else is_draw_icon = 2;
+
+    }
+    else is_draw_icon = 0 ;
+
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: sub_screen_stop
+*	功能说明: 停止界面
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void sub_screen_stop(void)
+{
+    uint8_t num = 2;//按键数
+    uint8_t i;
+    uint8_t selx;
+
+    uint8_t free_flag = 0;
+    if( redraw_screen_flag == IS_TRUE )
+    {
+        redraw_screen_flag = IS_FALSE;
+        //填充背景色
+        gui_fill_rectangle(0, 40, lcddev.width, lcddev.height - 40, PRINT_STOP_COLOR);
+        screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *)*num);
+        if(screen_key_group)//按键创建成功
+        {
+
+            uint16_t botton_width = 80;
+            uint16_t botton_height = 80;
+
+            uint16_t xOff = lcddev.width / 4 -  botton_width / 2;
+            uint16_t yOff = 60;
+
+            for( i = 0; i < num; i++)//创建2个按键
+            {
+                screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+                xOff += 50;
+                xOff += botton_width;
+            }
+            for( i = 0; i < num; i++)
+            {
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+
+                screen_key_group[i]->caption = (u8 *)APP_YESNO_CAPTION_TBL[gui_phy.language][i];
+            }
+            for(i = 0; i < num; i++)
+            {
+                btn_draw(screen_key_group[i]);
+            }
+
+        }
+        else
+        {
+            PRINTUI_DEBUG("file %s, function %s memory error!\r\n", __FILE__, __FUNCTION__);
+            return;
+        }
+
+    }
+
+//温度检测
+    display_temp();
+//按键检测
+    selx = screen_key_chk(screen_key_group, &in_obj, num);
+    if(selx & BUTTON_ACTION)
+    {
+        switch(selx & BUTTON_SELECTION_MASK)
+        {
+        case PRINT_STOP_SURE_BUTTON_ID://确定--x、y轴电机回原点，z轴向下移动，屏幕切换到打印界面，开始/暂停按键变为开始，精度条变为100%
+            currentMenu = print_screen;
+            free_flag = 1;
+
+
+            card.FILE_STATE = PS_STOP;
+            quickStop();//停止规划动作
+            card_closefile();//关闭文件
+
+            stoptime = millis() - starttime; //非正常打印结束，记录此时结束时间
+            starttime = 0;//时间标志清零
+            line_no = 0;//gcode 命令行号清零
+
+
+            force_sdCard_pause();//sdCard解析命令停止
+            //温度置零
+            //x、y轴回原点，z轴下移到最大位置
+            menu_action_gcode("M104 S0");//设置热挤出头温度
+            menu_action_gcode("M140 S0");//设置热床温度
+            menu_action_gcode("G28 X Y Z100");
+            menu_action_gcode("M84");//电机断电
+
+            PRINTUI_DEBUG("press sure key\r\n");
+            break;
+        case PRINT_STOP_CANCLE_BUTTON_ID://取消--返回打印界面
+
+            currentMenu = print_screen;
+            free_flag = 1;
+            PRINTUI_DEBUG("press cancle key\r\n");
+            break;
+        default:
+            break;
+        }
+    }
+    if(free_flag == 1) //释放内存
+    {
+        redraw_screen_flag = IS_TRUE;
+        for(i = 0; i < num; i++)
+        {
+            btn_delete(screen_key_group[i]);
+        }
+        gui_memin_free(screen_key_group);
+    }
+
+
+
+}
+
+static void sub_screen_fila_in_mesg(void)
+{
+    uint16_t xOff1 = 0;
+    uint16_t yOff1 = 40 ;
+    if( redraw_screen_flag == IS_TRUE)
+    {
+
+        redraw_screen_flag = IS_FALSE;
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GRAYBLUE); //清屏
+
+        xOff1 = 10;
+        yOff1 = 40 + 20 ;
+        gui_show_strmid(xOff1, yOff1, lcddev.width, 24, WHITE, 24, (u8 *)FILAM_IN_MESG_BEGIN, 1);
+        filam_adj_update_time =  millis() + 5000;
+    }
+
+    if ( millis() > filam_adj_update_time - 2000 && millis() < filam_adj_update_time) //3s 时间到
+    {
+        xOff1 = 0;
+        yOff1 = 40;
+
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GRAYBLUE); //清屏
+
+        xOff1 = 10;
+        yOff1 = 40 + 20 ;
+        gui_show_strmid(xOff1, yOff1, lcddev.width, 24, WHITE, 24, (u8 *)FILAM_IN_MESG_DONE, 1);
+        PRINTUI_DEBUG("3s time out\r\n");
+    }
+    if( millis() > filam_adj_update_time )//5s 时间到
+    {
+
+
+
+        currentMenu = preheat_set_screen;
+        redraw_screen_flag = IS_TRUE;
+        PRINTUI_DEBUG("5s time out\r\n");
+    }
+    //具体进料操作
+
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: sub_screen_fila_in
+*	功能说明:
+*	形    参: 无
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void sub_screen_fila_in(void)
+{
+    uint8_t num = 2;//按键数
+    uint8_t i;
+    uint8_t selx;
+
+    uint8_t free_flag = 0;
+    if( redraw_screen_flag == IS_TRUE)
+    {
+        uint16_t xOff1 = 0;
+        uint16_t yOff1 = 40 ;
+
+        redraw_screen_flag = IS_FALSE;
+
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GREEN);    //背景色
+
+        if(card.FILE_STATE == PS_NO || card.FILE_STATE == PS_PAUSE ) //只有在打印开始前 或者 打印开始了再暂停 的情况下才允许 进料
+        {
+            xOff1 = 10;
+            yOff1 = 40 + 20 ;
+
+            gui_show_strmid(xOff1, yOff1, lcddev.width, 24, RED, 24, (u8 *)FILAM_IN_REMIN_MESG, 1);  //提示是否进料
+
+            screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *)*num);
+            if(screen_key_group)//按键创建成功
+            {
+                uint16_t botton_width = 60;
+                uint16_t botton_height = 60;
+
+                uint16_t xOff = 10;
+                uint16_t yOff = 40 + 20 + 60;
+
+                for( i = 0; i < num; i++)//创建2个按键
+                {
+                    screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+                    xOff += 50;
+                    xOff += botton_width;
+                }
+                for( i = 0; i < num; i++)
+                {
+                    screen_key_group[i]->bcfucolor = BLACK;
+                    screen_key_group[i]->bcfdcolor = WHITE;
+
+                    screen_key_group[i]->bkctbl[0] = CYAN;
+                    screen_key_group[i]->bkctbl[1] = RED;
+                    screen_key_group[i]->bkctbl[2] = CYAN;
+                    screen_key_group[i]->bkctbl[3] = RED;
+
+                    screen_key_group[i]->caption = (u8 *)APP_YESNO_CAPTION_TBL[gui_phy.language][i];
+                }
+                for(i = 0; i < num; i++)
+                {
+                    btn_draw(screen_key_group[i]);
+                }
+            }
+            else
+            {
+                PRINTUI_DEBUG("file %s, function %s memory error!\r\n", __FILE__, __FUNCTION__);
+                return;
+            }
+
+        }
+        else//提示打印机正在打印中，请先暂停打印再来进料
+        {
+            xOff1 = 10;
+            yOff1 = 40 + 20 ;
+            gui_show_strmid(xOff1, yOff1, lcddev.width, 24, RED, 24, (u8 *)FILAM_IN_ERROR_MESG, 1);
+            filam_adj_update_time = millis() + 2000;
+        }
+
+    }
+    //温度检测
+    display_temp();
+
+    if(card.FILE_STATE == PS_NO || card.FILE_STATE == PS_PAUSE )//只有在打印开始前 或者 打印开始了再暂停 的情况下才允许 进料
+    {
+        //按键检测
+        selx = screen_key_chk(screen_key_group, &in_obj, num);
+        if(selx & BUTTON_ACTION)
+        {
+            switch(selx & BUTTON_SELECTION_MASK)
+            {
+            case PRINT_STOP_SURE_BUTTON_ID://确定--进料
+
+
+                currentMenu = sub_screen_fila_in_mesg;
+                free_flag = 1;
+
+                PRINTUI_DEBUG("press sure key\r\n");
+                break;
+            case PRINT_STOP_CANCLE_BUTTON_ID://取消--退出
+                currentMenu = preheat_set_screen;
+                free_flag = 1;
+                PRINTUI_DEBUG("press cancle key\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+        if(free_flag == 1) //释放内存
+        {
+            redraw_screen_flag = IS_TRUE;
+            for(i = 0; i < num; i++)
+            {
+                btn_delete(screen_key_group[i]);
+            }
+            gui_memin_free(screen_key_group);
+        }
+
+    }
+    else
+    {
+
+        if ( millis() > filam_adj_update_time )//2s 时间到
+        {
+            currentMenu = preheat_set_screen;
+            redraw_screen_flag = IS_TRUE;
+            PRINTUI_DEBUG("2s time out\r\n");
+        }
+    }
+
+
+}
+
+
+void sub_screen_fila_out_mesg(void)
+{
+    uint16_t xOff1 = 0;
+    uint16_t yOff1 = 40 ;
+    if( redraw_screen_flag == IS_TRUE)
+    {
+
+        redraw_screen_flag = IS_FALSE;
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GRAYBLUE); //清屏
+
+        xOff1 = 10;
+        yOff1 = 40 + 20 ;
+        gui_show_strmid(xOff1, yOff1, lcddev.width, 24, WHITE, 24, (u8 *)FILAM_OUT_MESG_BEGIN, 1);
+        filam_adj_update_time =  millis() + 5000;
+    }
+
+    if ( millis() > filam_adj_update_time - 2000 && millis() < filam_adj_update_time) //3s 时间到
+    {
+        xOff1 = 0;
+        yOff1 = 40;
+
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GRAYBLUE); //清屏
+
+        xOff1 = 10;
+        yOff1 = 40 + 20 ;
+        gui_show_strmid(xOff1, yOff1, lcddev.width, 24, WHITE, 24, (u8 *)FILAM_OUT_MESG_DONE, 1);
+        PRINTUI_DEBUG("3s time out\r\n");
+    }
+    if( millis() > filam_adj_update_time )//5s 时间到
+    {
+        currentMenu = preheat_set_screen;
+        redraw_screen_flag = IS_TRUE;
+        PRINTUI_DEBUG("5s time out\r\n");
+    }
+    //具体退料操作
+
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: sub_screen_fila_out
+*	功能说明:
+*	形    参: 无
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void sub_screen_fila_out(void)
+{
+    uint8_t num = 2;//按键数
+    uint8_t i;
+    uint8_t selx;
+
+    uint8_t free_flag = 0;
+    if( redraw_screen_flag == IS_TRUE)
+    {
+        uint16_t xOff1 = 0;
+        uint16_t yOff1 = 40 ;
+
+        redraw_screen_flag = IS_FALSE;
+        gui_fill_rectangle(xOff1, yOff1, lcddev.width, lcddev.height, GREEN);    //背景色
+        if(card.FILE_STATE == PS_NO || card.FILE_STATE == PS_PAUSE )//只有在打印开始前 或者 打印开始了再暂停 的情况下才允许 进料
+        {
+            xOff1 = 10;
+            yOff1 = 40 + 20 ;
+
+            gui_show_strmid(xOff1, yOff1, lcddev.width, 24, RED, 24, (u8 *)FILAM_OUT_REMIN_MESG, 1);  //提示是否进料
+
+            screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *)*num);
+            if(screen_key_group)//按键创建成功
+            {
+                uint16_t botton_width = 60;
+                uint16_t botton_height = 60;
+
+                uint16_t xOff = 10;
+                uint16_t yOff = 40 + 20 + 60;
+
+                for( i = 0; i < num; i++)//创建2个按键
+                {
+                    screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+                    xOff += 50;
+                    xOff += botton_width;
+                }
+                for( i = 0; i < num; i++)
+                {
+                    screen_key_group[i]->bcfucolor = BLACK;
+                    screen_key_group[i]->bcfdcolor = WHITE;
+
+                    screen_key_group[i]->bkctbl[0] = CYAN;
+                    screen_key_group[i]->bkctbl[1] = RED;
+                    screen_key_group[i]->bkctbl[2] = CYAN;
+                    screen_key_group[i]->bkctbl[3] = RED;
+
+                    screen_key_group[i]->caption = (u8 *)APP_YESNO_CAPTION_TBL[gui_phy.language][i];
+                }
+                for(i = 0; i < num; i++)
+                {
+                    btn_draw(screen_key_group[i]);
+                }
+            }
+            else
+            {
+                PRINTUI_DEBUG("file %s, function %s memory error!\r\n", __FILE__, __FUNCTION__);
+                return;
+            }
+
+        }
+        else//提示打印机正在打印中，请先暂停打印再来进料
+        {
+            xOff1 = 10;
+            yOff1 = 40 + 20 ;
+            gui_show_strmid(xOff1, yOff1, lcddev.width, 24, RED, 24, (u8 *)FILAM_OUT_ERROR_MESG, 1);
+            filam_adj_update_time = millis() + 2000;
+        }
+
+    }
+    //温度检测
+    display_temp();
+
+    if(card.FILE_STATE == PS_NO || card.FILE_STATE == PS_PAUSE )//只有在打印开始前 或者 打印开始了再暂停 的情况下才允许 进料
+    {
+        //按键检测
+        selx = screen_key_chk(screen_key_group, &in_obj, num);
+        if(selx & BUTTON_ACTION)
+        {
+            switch(selx & BUTTON_SELECTION_MASK)
+            {
+            case PRINT_STOP_SURE_BUTTON_ID://确定--进料
+
+                currentMenu = sub_screen_fila_out_mesg;
+                free_flag = 1;
+                PRINTUI_DEBUG("press sure key\r\n");
+                break;
+            case PRINT_STOP_CANCLE_BUTTON_ID://取消--退出
+                currentMenu = preheat_set_screen;
+                free_flag = 1;
+                PRINTUI_DEBUG("press cancle key\r\n");
+                break;
+            default:
+                break;
+            }
+        }
+        if(free_flag == 1) //释放内存
+        {
+            redraw_screen_flag = IS_TRUE;
+            for(i = 0; i < num; i++)
+            {
+                btn_delete(screen_key_group[i]);
+            }
+            gui_memin_free(screen_key_group);
+        }
+
+    }
+    else
+    {
+
+        if ( millis() > filam_adj_update_time )//2s 时间到
+        {
+            currentMenu = preheat_set_screen;
+            redraw_screen_flag = IS_TRUE;
+            PRINTUI_DEBUG("2s time out\r\n");
+        }
+    }
+
+
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: fila_out_message_box
+*	功能说明:
+*	形    参: 无
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+
+/*
+*********************************************************************************************************
+*	函 数 名: disply_valu_for_set
+*	功能说明: 显示设定的热床、挤出头温度值或者风扇的%值
+*	形    参: id--设置对象
+@ ADJ_BED_VAL_ID--热床
+@ ADJ_EXTRUDER_VAL_ID--挤出头
+@ ADJ_FAN_VAL_ID -- 风扇
+
+value--要设置的值
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+static void disply_valu_for_set(const uint8_t id, const float value)
+{
+    uint8_t num = 8;//按键数
+    uint8_t i;
+    // uint8_t j = 0;
+    uint8_t xoff, yoff;
+    uint8_t disp_width = 60;
+    uint8_t disp_height = 50;
+    char valueBuffer[5];
+
+
+    xoff = 200 + 10;
+    yoff = 40 + 10;
+    gui_draw_rectangle(xoff, yoff, disp_width, disp_height, BLACK);
+    gui_fill_rectangle(xoff, yoff, disp_width, disp_height, CYAN); //显示设定值文本框
+
+    switch ( id )
+    {
+    case ADJ_BED_VAL_ID:
+    case ADJ_EXTRUDER_VAL_ID:
+        sprintf(valueBuffer, "%3.0f C", value);//degHotend(0));
+        break;
+    case ADJ_FAN_VAL_ID:
+        sprintf(valueBuffer, "%3d% %", (uint32_t)value);
+        break;
+    default:
+        break;
+    }
+
+    gui_show_strmid(xoff - 5, yoff + 15, disp_width, 16, BLACK, 16, (u8 *)valueBuffer, 1);//显示设定的值
+
+}
+
+/*
+*********************************************************************************************************
+*	函 数 名: set_valu_for_set
+*	功能说明: 打印设置界面中设置热床、挤出头温度值和风扇的%值
+*	形    参: id--设置的对象
+@ ADJ_BED_VAL_ID--热床
+@ ADJ_EXTRUDER_VAL_ID--挤出头
+@ ADJ_FAN_VAL_ID -- 风扇
+dir--设置方向，增加还是减少
+@ ADD_DIR--增加
+@ SUB_DIR--减少
+
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void set_valu_for_set(const uint8_t id, const uint8_t dir)
+{
+    char TempBuffer[32];
+    switch ( id )
+    {
+    case ADJ_BED_VAL_ID:
+        switch ( dir )
+        {
+        case ADD_DIR:
+            step_value[ADJ_BED_VAL_ID] += 2;
+            if(step_value[ADJ_BED_VAL_ID] >= BED_MAX_TEMP)
+            {
+                step_value[ADJ_BED_VAL_ID] = BED_MAX_TEMP;
+            }
+
+            break;
+        case SUB_DIR:
+            step_value[ADJ_BED_VAL_ID] -= 2;
+            if(step_value[ADJ_BED_VAL_ID] <= BED_MIN_TEMP)
+            {
+                step_value[ADJ_BED_VAL_ID] = BED_MIN_TEMP;
+            }
+            break;
+        default:
+            break;
+        }
+
+        disply_valu_for_set(ADJ_BED_VAL_ID, step_value[ADJ_BED_VAL_ID]);
+        sprintf(TempBuffer, "M140 S%.1f", step_value[ADJ_BED_VAL_ID]);
+        menu_action_gcode(TempBuffer);
+
+        break;
+
+    case ADJ_EXTRUDER_VAL_ID:
+        switch ( dir )
+        {
+        case ADD_DIR:
+            step_value[ADJ_EXTRUDER_VAL_ID] += 2;
+            if(step_value[ADJ_EXTRUDER_VAL_ID] >= EXRUDER_MAX_TEMP)
+            {
+                step_value[ADJ_EXTRUDER_VAL_ID] = EXRUDER_MAX_TEMP;
+            }
+            break;
+        case SUB_DIR:
+            step_value[ADJ_EXTRUDER_VAL_ID] -= 2;
+            if(step_value[ADJ_EXTRUDER_VAL_ID] <= EXRUDER_MIN_TEMP)
+            {
+                step_value[ADJ_EXTRUDER_VAL_ID] = EXRUDER_MIN_TEMP;
+            }
+            break;
+        default:
+            break;
+        }
+        disply_valu_for_set(ADJ_EXTRUDER_VAL_ID, step_value[ADJ_EXTRUDER_VAL_ID]);
+
+        sprintf(TempBuffer, "M104 S%.1f", step_value[ADJ_EXTRUDER_VAL_ID]);
+        menu_action_gcode(TempBuffer);
+
+        break;
+
+    case ADJ_FAN_VAL_ID:
+        switch ( dir )
+        {
+        case ADD_DIR:
+            step_value[ADJ_FAN_VAL_ID] += 10;
+            if(step_value[ADJ_FAN_VAL_ID] >= FAN_MAX_DUTY)
+            {
+                step_value[ADJ_FAN_VAL_ID] = FAN_MAX_DUTY;
+            }
+            break;
+        case SUB_DIR:
+            step_value[ADJ_FAN_VAL_ID] -= 10;
+            if(step_value[ADJ_FAN_VAL_ID] <= FAN_MIN_DUTY)
+            {
+                step_value[ADJ_FAN_VAL_ID] = FAN_MIN_DUTY;
+
+            }
+            break;
+        default:
+            break;
+        }
+        disply_valu_for_set(ADJ_FAN_VAL_ID, step_value[ADJ_FAN_VAL_ID]);
+        sprintf(TempBuffer, "M106 S%d", (u8)step_value[ADJ_FAN_VAL_ID]);
+        menu_action_gcode(TempBuffer);
+
+        break;
+    default:
+        break;
+    }
+    //具体的设定热床、挤出头、风扇的函数
+
+}
+
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: display_select_button
+*	功能说明:打印设置界面中，热床、挤出头、风扇这3个选项图标显示控制，只能显示一个图标。
+*	形    参: button_num--图标创建时的ID值
+@ 2--
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void display_select_button(uint8_t button_num)
+{
+
+    switch (button_num)
+    {
+    case PRINT_SET_BED_BMP_ID:
+
+        minibmp_decode(screen_key_group[PRINT_SET_BED_BMP_ID]->picbtnpathd, screen_key_group[PRINT_SET_BED_BMP_ID]->left, screen_key_group[PRINT_SET_BED_BMP_ID]->top, screen_key_group[PRINT_SET_BED_BMP_ID]->width, screen_key_group[PRINT_SET_BED_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->left, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->top, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->width, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_FAN_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_FAN_BMP_ID]->left, screen_key_group[PRINT_SET_FAN_BMP_ID]->top, screen_key_group[PRINT_SET_FAN_BMP_ID]->width, screen_key_group[PRINT_SET_FAN_BMP_ID]->height, 0, 0);
+        break;
+    case PRINT_SET_EXTRUDER_BMP_ID:
+        minibmp_decode(screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->picbtnpathd, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->left, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->top, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->width, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_BED_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_BED_BMP_ID]->left, screen_key_group[PRINT_SET_BED_BMP_ID]->top, screen_key_group[PRINT_SET_BED_BMP_ID]->width, screen_key_group[PRINT_SET_BED_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_FAN_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_FAN_BMP_ID]->left, screen_key_group[PRINT_SET_FAN_BMP_ID]->top, screen_key_group[PRINT_SET_FAN_BMP_ID]->width, screen_key_group[PRINT_SET_FAN_BMP_ID]->height, 0, 0);
+        break;
+    case PRINT_SET_FAN_BMP_ID:
+        minibmp_decode(screen_key_group[PRINT_SET_FAN_BMP_ID]->picbtnpathd, screen_key_group[PRINT_SET_FAN_BMP_ID]->left, screen_key_group[PRINT_SET_FAN_BMP_ID]->top, screen_key_group[PRINT_SET_FAN_BMP_ID]->width, screen_key_group[PRINT_SET_FAN_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->left, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->top, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->width, screen_key_group[PRINT_SET_EXTRUDER_BMP_ID]->height, 0, 0);
+        minibmp_decode(screen_key_group[PRINT_SET_BED_BMP_ID]->picbtnpathu, screen_key_group[PRINT_SET_BED_BMP_ID]->left, screen_key_group[PRINT_SET_BED_BMP_ID]->top, screen_key_group[PRINT_SET_BED_BMP_ID]->width, screen_key_group[PRINT_SET_BED_BMP_ID]->height, 0, 0);
+        break;
+    default:
+        break;
+    }
+
+}
+
+
+/*
+*********************************************************************************************************
+*	函 数 名: sub_screen_set
+*	功能说明: 设置界面
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+
+/*
+*********************************************************************************************************
+*	函 数 名: print_screen
+*	功能说明: 打印界面
+*	形    参: 无
+*	返 回 值: 无
+*********************************************************************************************************
+*/
+void print_screen(void)
+{
+    uint8_t i, j;
+    uint8_t selx;
+    uint8_t icon_gap = 20;//图标间隔20pixe
+    uint8_t first_icon_xbase;//开始/暂停按钮x轴显示地址
+    uint8_t first_icon_ybase;//开始/暂停按钮y轴显示地址
+    static uint8_t first_run = 0;
+    uint8_t gcode_bmp_xval = 5;
+    uint16_t gcode_bmp_yval = 110;
+
+
+    _which_button_print SELECTED_BUTTON = NO_SELECTED_BUTTON_PRINT;
+
+    if( redraw_screen_flag == IS_TRUE)
+    {
+
+        redraw_screen_flag = IS_FALSE;
+        prgb = progressbar_creat(5, 195, 295, 30, 0x61); //创建进度条
+        if(prgb == NULL) {
+            PRINTUI_DEBUG("file:%s line:%d  memory error!", __FILE__, __LINE__);   //创建失败.
+        }
+
+        //为打印控制器申请内存
+        pintdev = (_gui_dev *) gui_memin_malloc(sizeof(_gui_dev));
+        if( pintdev == 0)
+        {
+            PRINTUI_DEBUG("file:%s,line:%d -> memory error!\r\n", __FILE__, __LINE__);
+            return;
+        }
+        pintdev->icon = (_gui_icon_info *) mymalloc(SRAMIN, sizeof(_gui_icon_info) * PRINT_BMP_NUMS);
+        if( pintdev == 0)
+        {
+            PRINTUI_DEBUG("file:%s,line:%d -> memory error!\r\n", __FILE__, __LINE__);
+            return;
+        }
+
+        //填充背景色
+        gui_fill_rectangle(0, 40, lcddev.width, lcddev.height - 40, WHITE);
+
+
+        //显示gcode图标
+        app_show_mono_icos(gcode_bmp_xval, gcode_bmp_yval, 80, 80, (u8*)GUI_PRINT_ICO8080, BLUE, WHITE);
+
+        //显示打印时间
+        display_print_time_test();
+
+        first_icon_xbase = 5 + 90;
+        first_icon_ybase = 120;
+
+
+        //初始化图标相关信息
+
+        pintdev->icon[0].x = first_icon_xbase  ;
+        pintdev->icon[0].y = first_icon_ybase  ;
+        pintdev->icon[0].width = 48;
+        pintdev->icon[0].height = 48;
+        pintdev->icon[0].path = (u8*)print_path_tbl[0];
+        pintdev->icon[0].name = (u8*)print_icon_name_tbl[gui_phy.language][0];
+
+        pintdev->icon[1].x = first_icon_xbase  ;
+        pintdev->icon[1].y = first_icon_ybase  ;
+        pintdev->icon[1].width = 48;
+        pintdev->icon[1].height = 48;
+        pintdev->icon[1].path = (u8*)print_path_tbl[1];
+        pintdev->icon[1].name = (u8*)print_icon_name_tbl[gui_phy.language][1];
+        j = 0;
+        for( i = 2 ; i < PRINT_BMP_NUMS - 1 ; i++)
+        {
+            j++;
+            pintdev->icon[i].x = first_icon_xbase + j * 48 + j * icon_gap  ;
+            pintdev->icon[i].y = first_icon_ybase  ;
+            pintdev->icon[i].width = 48;
+            pintdev->icon[i].height = 48;
+            pintdev->icon[i].path = (u8*)print_path_tbl[i];
+            pintdev->icon[i].name = (u8*)print_icon_name_tbl[gui_phy.language][i];
+        }
+
+        pintdev->icon[i].x = 320 - 5 - 50  ;
+        pintdev->icon[i].y = 40 + 5  ;
+        pintdev->icon[i].width = 50;
+        pintdev->icon[i].height = 50;
+        pintdev->icon[i].path = (u8*)print_path_tbl[i];
+        pintdev->icon[i].name = (u8*)print_icon_name_tbl[gui_phy.language][i];
+
+
+        //显示图标
+        /*************检测从停止界面返回到打印界面显示开始还是暂停图标*****************/
+        if( card.FILE_STATE == PS_PIRNT )
+            display_pause_icon();
+        else display_play_icon();
+        for(i = 2; i < PRINT_BMP_NUMS; i++)
+        {
+
+            minibmp_decode((u8*)pintdev->icon[i].path, pintdev->icon[i].x, pintdev->icon[i].y, pintdev->icon[i].width, pintdev->icon[i].height, 0, 0);
+            gui_show_strmid(pintdev->icon[i].x, pintdev->icon[i].y + pintdev->icon[i].height + 4, pintdev->icon[i].width, 16, PRINT_FONT_COLOR, 16, (u8*)pintdev->icon[i].name, 1); //显示名字
+        }
+
+        //显示打印进度条
+        if(prgb)
+        {
+            prgb->totallen = 100;
+            prgb->curpos = 50;
+            progressbar_draw_progressbar(prgb);//画按钮
+        }
+
+
+
+    }
+
+    /**************更新进度条*****************/
+
+    display_processbar(fil_size, file_pos);
+
+    display_print_time_test();
+
+
+    /**************更新温度*****************/
+    display_temp();
+
+    print_over_normal();
+    if(card.FILE_STATE == PS_STOP || card.FILE_STATE == PS_PRINT_OVER_NOR)
+    {
+        first_run = 0;
+    }
+    check_is_pause_exacute();
+    /**************检测按键+动作*****************/
+
+    SELECTED_BUTTON = (_which_button_print)print_touch_chk();
+    switch (SELECTED_BUTTON)
+    {
+    case IS_START:
+        switch (card.FILE_STATE)
+        {
+        case PS_NO://开始打印
+            first_run++;
+            if(first_run == 1)
+            {
+                starttime = millis();//开始计时
+                file_pos = 0;//文件指引清零
+            }
+            else first_run = 2;
+            card_startFileprint();
+
+            card.FILE_STATE = PS_PIRNT;
+            display_pause_icon();
+            PRINTUI_DEBUG("PS_NO \r\n");
+            break;
+
+        case PS_PIRNT://处于打印状态->暂停
+            display_play_icon();
+            card_pauseSDPrint();
+            card.FILE_STATE = PS_PAUSE;
+            //    home_x_for_pause();//x轴回原点
+            pause_op_counter = 1;
+
+            PRINTUI_DEBUG("PS_PIRNT \r\n");
+            break;
+
+        case PS_PAUSE:
+            display_pause_icon();
+            pause_op_counter = 2;
+            //    move_to_pause_point();
+            card.FILE_STATE = PS_PIRNT;
+            //  card_startFileprint();//打印
+            PRINTUI_DEBUG("IS_PAUSE \r\n");
+            break;
+
+        case PS_STOP://用户结束打印后，未退出打印界面，重新点击打印按钮
+        case PS_PRINT_OVER_NOR://正常打印结束
+
+            if(is_sdCard_plugIn())
+            {
+                card_initsd();
+                selx = f_open(&card.fgcode, (const TCHAR*)file_name, FA_READ);
+                if (selx == FR_OK)
+                {
+
+                    starttime = millis();//开始计时
+                    line_no = 0;//gcode 命令行号清零
+                    file_pos = 0;//文件指引清零
+                    card.FILE_STATE = PS_PIRNT;
+                    card_startFileprint();
+                    display_pause_icon();
+                    PRINTUI_DEBUG("file name:%s\r\n", file_name);
+                }
+                else
+                {
+                    remind_error_infor();
+                }
+
+            }
+            else
+            {
+                remind_error_infor();
+            }
+
+            PRINTUI_DEBUG("PS_STOP \r\n");
+        default :
+            break;
+        }
+        break;
+
+    case IS_STOP://
+        if( card.FILE_STATE == PS_PIRNT || card.FILE_STATE == PS_PAUSE || card.FILE_STATE == PS_NO )
+        {
+
+            currentMenu = sub_screen_stop;
+
+            PRINTUI_DEBUG("IS_STOP %d", IS_STOP);
+        }
+        else  {
+            SELECTED_BUTTON = NO_SELECTED_BUTTON_PRINT;
+        }
+        break;
+
+    case IS_SET:
+        //打印机停止后才允许设置
+        icon_flag = IS_PRINT_SET_ICON;
+        currentMenu = preheat_set_screen;
+        PRINTUI_DEBUG("pause IS_SET %d", IS_SET);
+        break;
+
+    case IS_BACK://用户提前结束打印 或者 正常打印结束 方可退出打印界面
+        if(card.FILE_STATE == PS_STOP || card.FILE_STATE == PS_NO || card.FILE_STATE == PS_PRINT_OVER_NOR)//返回按键有效检测：1-按下停止--确认，2--进入打印界面，打印/暂停按键没有按下
+        {
+
+            card.FILE_STATE = PS_NO;
+            currentMenu = main_screen;
+            icon_flag = RESET_FLAG_ICON;
+            PRINTUI_DEBUG("IS_BACK %d", IS_BACK);
+        }
+        else {
+            SELECTED_BUTTON = NO_SELECTED_BUTTON_PRINT;
+        }
+        break;
+
+    default:
+        break;
+    }
+
+    if( IS_VALIBLE_BUTTON_PRINT(SELECTED_BUTTON) == IS_TRUE)//释放内存
+    {
+
+        redraw_screen_flag = IS_TRUE;
+        gui_memin_free(pintdev->icon);
+        gui_memin_free(pintdev);
+
+        progressbar_delete(prgb);
+        PRINTUI_DEBUG("free pintdev \r\n");
+        PRINTUI_DEBUG("free progress bar \r\n");
+    }
+
+}
+
+void gecodelist_screen(void)
+{
+    u8 selx = 0XFF;
+    u8 i;
+    u8 *pname = 0;
+    _filelistbox_list * filelisttemp;
+    if(windows_flag == IS_FALSE)
+    {
+        if(redraw_screen_flag == IS_TRUE)
+        {
+            redraw_screen_flag = IS_FALSE;
+
+
+            gui_fill_rectangle(0, 40, lcddev.width, lcddev.height, LIGHTGRAY );
+            gui_fill_rectangle(0, 40, lcddev.width, 40, LIGHTBLUE);
+            gui_draw_hline(0, 40, lcddev.width, GRAY);
+            gui_show_strmid(0, 40, 320, 40, WHITE, 16, (u8*)"SD卡打印", 1);
+            //画背景
+
+            screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *) * 3);
+            flistbox = filelistbox_creat(2, 80, lcddev.width - 4, 160, 1, 16);
+            if(screen_key_group && flistbox)
+            {
+                screen_key_group[0] = btn_creat(8, 48, 50, 25, 0, 4);
+                screen_key_group[0]->bcfucolor = BLACK;
+                screen_key_group[0]->bcfdcolor = WHITE;
+                screen_key_group[0]->bkctbl[0] = CYAN;
+                screen_key_group[0]->bkctbl[1] = RED;
+                screen_key_group[0]->bkctbl[2] = CYAN;
+                screen_key_group[0]->bkctbl[3] = RED;
+                screen_key_group[0]->caption = (u8 *)"返回";
+
+
+                for(i = 1; i < 3; i++)
+                {
+                    screen_key_group[i] = btn_creat(95 + (i - 1) * 80, 125, 60, 40, i, 2);
+
+                    screen_key_group[i]->bkctbl[0] = 0X8452;
+                    screen_key_group[i]->bkctbl[1] = 0XAD97;
+                    screen_key_group[i]->bkctbl[2] = 0XAD97;
+                    screen_key_group[i]->bkctbl[3] = 0X8452;
+                }
+                screen_key_group[1]->caption = (u8*)"打印";
+                screen_key_group[2]->caption = (u8*)"返回";
+
+                flistbox->fliter = FLBOX_FLT_GCODE;
+                flistbox->type = 0;
+                flistbox->path = (u8 *)"0:\\GCODE";
+                filelistbox_scan_filelist(flistbox);
+                filelistbox_draw_listbox(flistbox);
+
+                for(i = 0; i < 1; i++)
+                {
+                    btn_draw(screen_key_group[i]);
+                }
+            }
+        }
+
+
+        selx = filelistbox_check(flistbox, &in_obj);
+        selx = screen_key_chk(screen_key_group, &in_obj, 1);
+
+        if(selx & BUTTON_ACTION)
+        {   switch(selx & BUTTON_SELECTION_MASK) //
+            {
+            case 0://返回按下
+                currentMenu = main_screen;
+                redraw_screen_flag = IS_TRUE ;
+                for(i = 0; i < 3; i++)
+                {
+                    btn_delete(screen_key_group[i]);
+                }
+                gui_memin_free(screen_key_group);
+                filelistbox_delete(flistbox);
+
+                break;
+            default:
+                break;
+            }
+        }
+        else
+        {
+            if(flistbox->dbclick == 0X81)
+            {   flistbox->dbclick = 0x00;
+                redraw_screen_flag = IS_TRUE;
+                windows_flag = IS_TRUE;
+            }
+        }
+    }
+
+    else
+    {   if(redraw_screen_flag == IS_TRUE)
+        {
+            redraw_screen_flag = IS_FALSE;
+
+            gui_draw_arcrectangle(75, 80, 180, 40, 6, 1, GRAYBLUE, GRAYBLUE);
+            gui_fill_rectangle(75, 110, 180, 70, WHITE ); //
+            gui_draw_rectangle(75, 110, 180, 70, GRAYBLUE);
+            filelisttemp = filelist_search(flistbox->list, flistbox->selindex);
+            gui_show_strmid(75, 80, 180, 30, BLACK, 16, filelisttemp->name, 1);
+
+            if(screen_key_group)
+            {
+                for(i = 1; i < 3; i++)
+                {   btn_draw(screen_key_group[i]);
+                }
+            }
+        }
+        selx = screen_key_chk(screen_key_group + 1, &in_obj, 2);
+        if(selx & BUTTON_ACTION)
+        {   switch(selx & BUTTON_SELECTION_MASK) //
+            {
+            case 0://打印按下
+                filelisttemp = filelist_search(flistbox->list, flistbox->selindex);
+                strcpy((char *)card.filename, (const char*)filelisttemp->name);
+                pname = gui_memin_malloc(strlen((const char*)filelisttemp->name) + strlen((const char*)flistbox->path) + 2);
+                file_name = gui_memin_malloc(strlen((const char*)filelisttemp->name) + strlen((const char*)flistbox->path) + 2);
+                file_nameNOsuffix = gui_memin_malloc(strlen((const char*)filelisttemp->name));
+                if(pname && file_name && file_nameNOsuffix)
+                {
+                    pname = gui_path_name(pname, flistbox->path, filelisttemp->name);
+                    gui_path_name(file_name, flistbox->path, filelisttemp->name);//把选中的文件赋值到全局变量中去
+                    strcpy((char *)file_nameNOsuffix, (const char*)filelisttemp->name);	//拷贝
+                    get_file_name_no_suffix(file_nameNOsuffix);
+                    selx = f_open(&card.fgcode, (const TCHAR*)pname, FA_READ);
+                    gui_memin_free(pname);
+                    if (selx == FR_OK)
+                    {
+                        currentMenu = print_screen;
+                        redraw_screen_flag = IS_TRUE;
+                        windows_flag = IS_FALSE;
+                        for(i = 0; i < 3; i++)
+                        {   btn_delete(screen_key_group[i]);
+                        }
+                        gui_memin_free(screen_key_group);
+                        filelistbox_delete(flistbox);
+                        file_pos = 0;//文件指引清零
+                        fil_size = f_size(&card.fgcode);//记录文件大小
+                        card.FILE_STATE = PS_NO;//复位打印状态
+                    }
+                }
+                break;
+            case 1://返回
+                windows_flag = IS_FALSE;
+                filelistbox_draw_listbox(flistbox);
+                break;
+            default:
+                break;
+            }
+        }
+    }
+    display_temp();
+}
+
+
+/*******************具体应用api接口函数*******************/
+
+void api_filam_in_callback(void)//具体进料函数
+{
+
+}
+
+void api_filam_out_callback(void)//具体退料料函数
+{
+
+}
+
+void api_set_value_callback(void)
+{
+
+}
+
+
+
+
+void check_is_pause_exacute(void)
+{
+    u8 bool_flag = 0;
+    u8 i;
+    static u8 first_run = 0;
+    if((current_position[0] != destination[0]) ||
+            (current_position[1] != destination[1]) ||
+            (current_position[2] != destination[2]) ||
+            (current_position[3] != destination[3]) ||
+            (block_buffer_head != block_buffer_tail))
+    {
+        return;
+    }
+    else
+    {
+        if(pause_op_counter == 1)//暂停打印
+        {
+            first_run ++;
+
+			if(first_run == 1)//保证只保存一次最近暂停的位置
+			{
+				//确认之前的所有gcode码执行完毕
+				for( i = 0 ; i < NUM_AXIS; i++)
+				{
+					saved_position[i] = current_position[i];//保存当前位置
+					temp_posistion[i] = current_position[i];
+				}
+			}
+			else first_run = 2;
+            temp_posistion[0] = 0.0f;//x 轴回原点，别的轴不动
+            Cmd_MoveAxisCommand(temp_posistion);
+
+        }
+    }
+
+    if(pause_op_counter == 2 && first_run >= 1 )//恢复打印
+    {
+
+        pause_op_counter = 0;//一次完整的暂停->恢复打印 清零标志
+        first_run = 0 ;
+        Cmd_MoveAxisCommand(saved_position);
+        PRINTUI_DEBUG("-------------------------------------- resume to print\r\n");
+        card_startFileprint();//打印
+    }
+    else if(pause_op_counter == 2 && first_run == 0) //之前按下了暂停，又多次按下打印、暂停，最后打印/暂停 图标停留在暂停，表示已经处于打印状态
+    {
+        card_startFileprint();//打印
+		PRINTUI_DEBUG("--------------*****************************************print\r\n");
+    }
+
+
+
+}
+
+
+
+
+
+
+
+
+
+/*************************************/

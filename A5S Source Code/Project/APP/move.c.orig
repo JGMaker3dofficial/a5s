@@ -1,0 +1,293 @@
+
+#include "move.h"
+/**********************调试宏定义**************************/
+
+#define MOVEUI_DEBUG_EN
+
+#ifdef MOVEUI_DEBUG_EN
+
+#define MOVEUI_DEBUG	DEBUG_PRINTF
+
+#else
+#define MOVEUI_DEBUG(format,...)	((void) 0)
+
+#endif
+/************************************************/
+
+#define MOVE_BG_COLOR		 GRAY
+#define MOVE_FONT_COLOR		BLACK
+
+#define MOVE_SCREEN_BUTTONS 	13
+
+#define MOVE_ALL_BUTTON_ID	 0
+
+#define MOVE_YSUB_BUTTON_ID	 1
+#define MOVE_YADD_BUTTON_ID	 2
+
+#define MOVE_XSUB_BUTTON_ID	 3
+#define MOVE_XADD_BUTTON_ID	 4
+
+#define MOVE_ZSUB_BUTTON_ID	 5
+#define MOVE_ZADD_BUTTON_ID	 6
+
+#define MOVE_ESUB_BUTTON_ID	 7
+#define MOVE_EADD_BUTTON_ID	 8
+
+#define MOVE_X_BUTTON_ID	 9
+#define MOVE_Y_BUTTON_ID	 10
+#define MOVE_Z_BUTTON_ID	 11
+
+#define MOVE_BACK_BUTTON_ID	 12
+
+/*********************打印设置图标目录*************************/
+char *const move_icon_name_tbl[MOVE_SCREEN_BUTTONS] =
+{
+    "ALL", //0
+
+    "Y-", //1
+    "Y+",//2
+    "X-",//3
+    "X+",//4
+
+    "Z-",//5
+    "Z+",//6
+    "E-",//7
+    "E+",//8
+
+    "X",//9
+    "Y",//10
+    "Z",//11
+    "返回"//12
+};
+
+void move_screen(void)
+{
+    uint8_t num = 13;//按键数
+    uint8_t i;
+    uint8_t j = 0;
+    uint8_t selx;
+    uint8_t free_flag = 0;
+    if(redraw_screen_flag == IS_TRUE)
+    {
+        redraw_screen_flag = IS_FALSE;
+        which_screen = IS_PRHEAT_SCREEN;
+        gui_fill_rectangle(0, 40, lcddev.width, lcddev.height - 40, MOVE_BG_COLOR);
+        screen_key_group = (_btn_obj **)gui_memin_malloc(sizeof(_btn_obj *)*num);
+        if(screen_key_group)//按键创建成功
+        {
+            uint16_t botton_width = 50;
+            uint16_t botton_height = 50;
+
+//左半平面
+            i = 0;
+            uint16_t xOff = 5;
+            uint16_t yOff = 40 + 5;
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);//第一个按键 "ALL"
+            screen_key_group[i]->bcfucolor = BLACK;
+            screen_key_group[i]->bcfdcolor = WHITE;
+
+            screen_key_group[i]->bkctbl[0] = CYAN;
+            screen_key_group[i]->bkctbl[1] = RED;
+            screen_key_group[i]->bkctbl[2] = CYAN;
+            screen_key_group[i]->bkctbl[3] = RED;
+            screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+
+
+            botton_width = 40;
+            botton_height = 40;
+            xOff = 5 + 50 + 20;
+            yOff = 40 + 5 + 20;
+
+            for(i = 1, j = 0; i < 3; i++, j += 2) //Y- Y+按键
+            {
+                screen_key_group[i] = btn_creat(xOff, yOff + j * botton_height, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+                yOff += 10;
+            }
+
+            xOff = 5 + 50 + 20 - 40 - 10;
+            yOff = 40 + 5 + 20 + 40 ;
+            for(i = 3, j = 0; i < 5; i++, j += 2) //X- X+按键
+            {
+                screen_key_group[i] = btn_creat(xOff + j * botton_width, yOff, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+                xOff += 10;
+            }
+//右半平面
+            xOff = 160 ;
+            yOff = 40 + 5 + 20;
+            for(i = 5, j = 0; i < 7; i++, j += 2) //Z- Z+ 按键
+            {
+                screen_key_group[i] = btn_creat(xOff, yOff + j * botton_height, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+                yOff += 10;
+            }
+
+            xOff = 5 + 20 + 3 * 40 + 10 ;
+            yOff = 40 + 5 + 20 + 40;
+            for(i = 7, j = 0; i < 9; i++, j += 2) //E- E+按键
+            {
+                screen_key_group[i] = btn_creat(xOff + j * botton_width, yOff, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+                xOff += 10;
+            }
+
+            botton_width = 50;
+            botton_height = 50;
+            xOff = 160 + 40 + 5;
+            yOff = 40 + 5 + 20;
+            for(i = 9, j = 0; i < 11; i++, j++)//X Y按键
+            {
+                screen_key_group[i] = btn_creat(xOff + j * botton_width, yOff, botton_width, botton_height, i, 4);
+                screen_key_group[i]->bcfucolor = BLACK;
+                screen_key_group[i]->bcfdcolor = WHITE;
+
+                screen_key_group[i]->bkctbl[0] = CYAN;
+                screen_key_group[i]->bkctbl[1] = RED;
+                screen_key_group[i]->bkctbl[2] = CYAN;
+                screen_key_group[i]->bkctbl[3] = RED;
+                screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+                xOff += 5;
+            }
+            i = 11;//Z 按键
+            xOff = 160 + 40 + 5 + 5 + 50;
+            yOff = 40 + 5 + 20 + 50 + 10;
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 4);
+            screen_key_group[i]->bcfucolor = BLACK;
+            screen_key_group[i]->bcfdcolor = WHITE;
+
+            screen_key_group[i]->bkctbl[0] = CYAN;
+            screen_key_group[i]->bkctbl[1] = RED;
+            screen_key_group[i]->bkctbl[2] = CYAN;
+            screen_key_group[i]->bkctbl[3] = RED;
+            screen_key_group[i]->caption = (u8 *)move_icon_name_tbl[i];
+
+            i = 12;//返回  按键
+            //返回按键
+            botton_width = 54;
+            botton_height = 54;
+            xOff = 320 - 5 - botton_width;
+            yOff = 240 - 20 - botton_height;
+
+            screen_key_group[i] = btn_creat(xOff, yOff, botton_width, botton_height, i, 1);
+            screen_key_group[i]->picbtnpathu = (u8 *)print_set_path_tbl[2];//返回
+            screen_key_group[i]->picbtnpathd = (u8 *)print_set_path_tbl[2];
+            screen_key_group[i]->caption = (u8 *)(u8 *)move_icon_name_tbl[i];
+
+
+        }
+		            /***************画图标***************/
+            for(i = 0; i < num ; i++)
+            {
+                btn_draw(screen_key_group[i]);
+            }
+			i = 12;
+			gui_show_strmid(screen_key_group[i]->left - 5, screen_key_group[i]->top + screen_key_group[i]->height + 2, screen_key_group[i]->width + 5,16, MOVE_FONT_COLOR, 16, screen_key_group[i]->caption, 1);
+
+    }
+    //温度检测
+    display_temp();
+//按键检测
+    selx = screen_key_chk(screen_key_group, &in_obj, num);
+    if(selx & BUTTON_ACTION)
+    {
+        switch(selx & BUTTON_SELECTION_MASK)
+        {
+        case MOVE_ALL_BUTTON_ID://全部电机回原点
+
+            MOVEUI_DEBUG("all home key@\r\n");
+            break;
+			
+		case MOVE_YSUB_BUTTON_ID:
+		MOVEUI_DEBUG("y- key@\r\n");
+		break;
+		
+		case MOVE_YADD_BUTTON_ID:
+		MOVEUI_DEBUG("y+ key@\r\n");
+		break;
+		
+				case MOVE_XSUB_BUTTON_ID:
+		MOVEUI_DEBUG("x- key@\r\n");
+		break;
+		
+				case MOVE_XADD_BUTTON_ID:
+		MOVEUI_DEBUG("x+ key@\r\n");
+		break;
+		
+				case MOVE_ZSUB_BUTTON_ID:
+		MOVEUI_DEBUG("z- key@\r\n");
+		break;
+		
+				case MOVE_ZADD_BUTTON_ID:
+		MOVEUI_DEBUG("z+ key@\r\n");
+		break;
+					case MOVE_ESUB_BUTTON_ID:
+		MOVEUI_DEBUG("e- key@\r\n");
+		break;	
+		
+				case MOVE_EADD_BUTTON_ID:
+		MOVEUI_DEBUG("e+ key@\r\n");
+		break;
+	
+				case MOVE_X_BUTTON_ID:
+		MOVEUI_DEBUG("x home key@\r\n");
+		break;
+					case MOVE_Y_BUTTON_ID:
+		MOVEUI_DEBUG("y home key@\r\n");
+		break;		
+				case MOVE_Z_BUTTON_ID:
+		MOVEUI_DEBUG("z home key@\r\n");
+		break;
+		
+				break;
+				case MOVE_BACK_BUTTON_ID:
+		currentMenu = main_screen;
+          free_flag = 1;
+		MOVEUI_DEBUG("back key@\r\n");
+		break;
+		
+        default:
+            break;
+        }
+    }
+    if(free_flag == 1) //释放内存
+    {
+        redraw_screen_flag = IS_TRUE;
+        is_set_value = IS_FALSE;
+        for(i = 0; i < num; i++)
+        {
+            btn_delete(screen_key_group[i]);
+        }
+        gui_memin_free(screen_key_group);
+        MOVEUI_DEBUG("free move screen_key_group \r\n");
+    }
+
+}
